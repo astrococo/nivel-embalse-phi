@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import plotly.express as px
 from io import BytesIO
 from datetime import datetime
 import base64
@@ -9,34 +10,28 @@ import os
 import io
 import zipfile
 
-# ─── CONFIGURACIÓN GENERAL ──────────────────────────────────────────────
 st.set_page_config(page_title="Análisis Nivel Embalse", layout="wide")
 st.title("📊 Análisis del Nivel del Embalse")
 st.markdown("Sube un archivo `.xls` o `.xlsx` desde tu computador para comenzar.")
 
-# ─── SUBIDA DE ARCHIVO ──────────────────────────────────────────────────
 uploaded_file = st.file_uploader("Sube el archivo de Excel:", type=["xls", "xlsx"])
 
 if uploaded_file is not None:
     try:
-        # ─── DETECCIÓN Y LECTURA SEGURA DEL ARCHIVO ─────────────────────
         file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+        file_bytes = uploaded_file.read()
+        file_buffer = io.BytesIO(file_bytes)
 
         if file_ext == ".xls":
-            df = pd.read_excel(uploaded_file, sheet_name="Hoja1", engine="xlrd")
-
+            df = pd.read_excel(file_buffer, sheet_name="Hoja1", engine="xlrd")
         elif file_ext == ".xlsx":
-            file_bytes = uploaded_file.read()
-
-            if not zipfile.is_zipfile(io.BytesIO(file_bytes)):
+            if not zipfile.is_zipfile(file_buffer):
                 raise ValueError("El archivo .xlsx no es válido o está corrupto.")
-
-            df = pd.read_excel(io.BytesIO(file_bytes), sheet_name="Hoja1", engine="openpyxl")
-
+            file_buffer.seek(0)
+            df = pd.read_excel(file_buffer, sheet_name="Hoja1", engine="openpyxl")
         else:
-            raise ValueError("Formato de archivo no soportado. Solo se aceptan .xls o .xlsx")
+            raise ValueError("Formato no soportado. Solo .xls y .xlsx")
 
-        # ─── LIMPIEZA BÁSICA ──────────────────────────────────────────────
         df.columns = df.columns.str.strip()
         df['Fecha'] = pd.to_datetime(df['Fecha'])
         df.set_index('Fecha', inplace=True)
@@ -45,9 +40,22 @@ if uploaded_file is not None:
         st.write("Vista previa de los datos:")
         st.write(df.head())
 
-        # ─── ANÁLISIS DE VALORES NULOS ────────────────────────────────────
-        st.subheader("🔍 Análisis de valores nulos")
-        st.write(df.isnull().sum())
+        # Análisis Exploratorio
+        st.subheader("🔎 Análisis exploratorio y descriptivo")
+
+        st.write("📌 Estadísticas básicas:")
+        st.dataframe(df.describe())
+
+        st.write("🧮 Distribución del Nivel del Embalse")
+        fig_hist = px.histogram(df, x='NivelEmbalse', nbins=50, title='Distribución del Nivel del Embalse')
+        st.plotly_chart(fig_hist, use_container_width=True)
+
+        st.write("📈 Serie temporal original (zoomable)")
+        fig_line = px.line(df.reset_index(), x='Fecha', y='NivelEmbalse', title='Nivel del Embalse (Original)')
+        st.plotly_chart(fig_line, use_container_width=True)
+
+        st.write("🔍 Valores nulos por columna:")
+        st.dataframe(df.isnull().sum())
 
         fig, ax = plt.subplots(figsize=(12, 1))
         sns.heatmap(df[['NivelEmbalse']].isnull().T, cbar=False, cmap='viridis')
@@ -55,7 +63,6 @@ if uploaded_file is not None:
         ax.set_yticks([])
         st.pyplot(fig)
 
-        # ─── LIMPIEZA E INTERPOLACIÓN ─────────────────────────────────────
         df_clean = df[df['NivelEmbalse'].notnull().cummax()]
         df_clean['NivelEmbalse'] = df_clean['NivelEmbalse'].interpolate(method='linear')
 
@@ -64,7 +71,6 @@ if uploaded_file is not None:
         st.write("Valores nulos después de interpolar:")
         st.write(df_clean.isnull().sum())
 
-        # ─── RESAMPLEO ─────────────────────────────────────────────────────
         freq_options = {
             '15 minutos': '15T',
             '30 minutos': '30T',
@@ -77,17 +83,10 @@ if uploaded_file is not None:
 
         df_resampled = df_clean['NivelEmbalse'].resample(freq_code).mean()
 
-        # ─── GRÁFICO INTERACTIVO ──────────────────────────────────────────
         st.subheader(f"📈 Nivel del Embalse - Resampleado cada {freq_label}")
-        fig, ax = plt.subplots(figsize=(14, 5))
-        df_resampled.plot(ax=ax)
-        ax.set_title(f"Nivel del Embalse ({freq_label})")
-        ax.set_ylabel("Nivel (m)")
-        ax.set_xlabel("Fecha")
-        ax.grid(True)
-        st.pyplot(fig)
+        fig_resampled = px.line(df_resampled.reset_index(), x='Fecha', y='NivelEmbalse', title=f'Resampleado cada {freq_label}')
+        st.plotly_chart(fig_resampled, use_container_width=True)
 
-        # ─── EXPORTACIÓN ─────────────────────────────────────────────────
         def to_excel_download_link(df_export):
             output = BytesIO()
             df_export.to_excel(output, index=True, sheet_name='Resampleado')
