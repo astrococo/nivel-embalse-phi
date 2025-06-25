@@ -36,70 +36,80 @@ if uploaded_file is not None:
         df['Fecha'] = pd.to_datetime(df['Fecha'])
         df.set_index('Fecha', inplace=True)
 
-        st.success("✅ Archivo cargado exitosamente.")
-        st.write("Vista previa de los datos:")
-        st.write(df.head())
+        tabs = st.tabs(["📥 Carga y estructura", "🔍 Nulos", "📊 Análisis Exploratorio", "🕒 Resampleo", "📤 Exportar"])
 
-        # Análisis Exploratorio
-        st.subheader("🔎 Análisis exploratorio y descriptivo")
+        with tabs[0]:
+            st.success("✅ Archivo cargado exitosamente.")
+            st.write("Vista previa de los datos:")
+            st.write(df.head())
+            st.write("📌 Estadísticas básicas:")
+            st.dataframe(df.describe())
 
-        st.write("📌 Estadísticas básicas:")
-        st.dataframe(df.describe())
+        with tabs[1]:
+            st.subheader("🔍 Valores nulos")
+            st.dataframe(df.isnull().sum())
+            fig, ax = plt.subplots(figsize=(12, 1))
+            sns.heatmap(df[['NivelEmbalse']].isnull().T, cbar=False, cmap='viridis')
+            ax.set_title("Mapa de calor de valores nulos")
+            ax.set_yticks([])
+            st.pyplot(fig)
 
-        st.write("🧮 Distribución del Nivel del Embalse")
-        fig_hist = px.histogram(df, x='NivelEmbalse', nbins=50, title='Distribución del Nivel del Embalse')
-        st.plotly_chart(fig_hist, use_container_width=True)
+        with tabs[2]:
+            st.subheader("📊 Análisis Exploratorio")
+            st.plotly_chart(
+                px.histogram(df, x='NivelEmbalse', nbins=50, title='Distribución del Nivel del Embalse'),
+                use_container_width=True
+            )
+            st.plotly_chart(
+                px.line(df.reset_index(), x='Fecha', y='NivelEmbalse', title='Nivel del Embalse (Original)'),
+                use_container_width=True
+            )
 
-        st.write("📈 Serie temporal original (zoomable)")
-        fig_line = px.line(df.reset_index(), x='Fecha', y='NivelEmbalse', title='Nivel del Embalse (Original)')
-        st.plotly_chart(fig_line, use_container_width=True)
+        with tabs[3]:
+            df_clean = df[df['NivelEmbalse'].notnull().cummax()]
+            df_clean['NivelEmbalse'] = df_clean['NivelEmbalse'].interpolate(method='linear')
 
-        st.write("🔍 Valores nulos por columna:")
-        st.dataframe(df.isnull().sum())
+            freq_options = {
+                '15 minutos': '15T',
+                '30 minutos': '30T',
+                '1 hora': 'H',
+                '1 día': 'D'
+            }
 
-        fig, ax = plt.subplots(figsize=(12, 1))
-        sns.heatmap(df[['NivelEmbalse']].isnull().T, cbar=False, cmap='viridis')
-        ax.set_title("Mapa de calor de valores nulos")
-        ax.set_yticks([])
-        st.pyplot(fig)
+            freq_label = st.selectbox("📅 Frecuencia para resampleo:", list(freq_options.keys()))
+            freq_code = freq_options[freq_label]
 
-        df_clean = df[df['NivelEmbalse'].notnull().cummax()]
-        df_clean['NivelEmbalse'] = df_clean['NivelEmbalse'].interpolate(method='linear')
+            df_resampled = df_clean['NivelEmbalse'].resample(freq_code).mean()
+            st.plotly_chart(
+                px.line(df_resampled.reset_index(), x='Fecha', y='NivelEmbalse', title=f'Resampleado cada {freq_label}'),
+                use_container_width=True
+            )
+            st.write("Vista previa del resampleo:")
+            st.dataframe(df_resampled.head())
 
-        st.subheader("🧼 Datos limpios e interpolados")
-        st.write(df_clean.head())
-        st.write("Valores nulos después de interpolar:")
-        st.write(df_clean.isnull().sum())
+        with tabs[4]:
+            def to_excel_download_link(df_export):
+                output = BytesIO()
+                df_export.to_excel(output, index=True, sheet_name='Resampleado')
+                processed_data = output.getvalue()
+                b64 = base64.b64encode(processed_data).decode()
+                now = datetime.now().strftime("%Y%m%d_%H%M")
+                return f'<a href="data:application/octet-stream;base64,{b64}" download="nivel_embalse_{now}.xlsx">📥 Descargar Excel</a>'
 
-        freq_options = {
-            '15 minutos': '15T',
-            '30 minutos': '30T',
-            '1 hora': 'H',
-            '1 día': 'D'
-        }
-
-        freq_label = st.selectbox("📅 Frecuencia para resampleo:", list(freq_options.keys()))
-        freq_code = freq_options[freq_label]
-
-        df_resampled = df_clean['NivelEmbalse'].resample(freq_code).mean()
-
-        st.subheader(f"📈 Nivel del Embalse - Resampleado cada {freq_label}")
-        fig_resampled = px.line(df_resampled.reset_index(), x='Fecha', y='NivelEmbalse', title=f'Resampleado cada {freq_label}')
-        st.plotly_chart(fig_resampled, use_container_width=True)
-
-        def to_excel_download_link(df_export):
-            output = BytesIO()
-            df_export.to_excel(output, index=True, sheet_name='Resampleado')
-            processed_data = output.getvalue()
-            b64 = base64.b64encode(processed_data).decode()
-            now = datetime.now().strftime("%Y%m%d_%H%M")
-            return f'<a href="data:application/octet-stream;base64,{b64}" download="nivel_embalse_{now}.xlsx">📥 Descargar Excel</a>'
-
-        st.markdown("### 💾 Exportar resultados:")
-        st.markdown(to_excel_download_link(df_resampled.to_frame()), unsafe_allow_html=True)
+            st.markdown("### 💾 Exportar resultados:")
+            st.markdown(to_excel_download_link(df_resampled.to_frame()), unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"❌ Error procesando el archivo: {e}")
+        st.exception(e)
         st.stop()
 else:
     st.warning("⚠️ Por favor, sube un archivo `.xls` o `.xlsx` con las columnas `Fecha` y `NivelEmbalse`.")
+"""
+
+# Guardar en archivo
+file_path = "/mnt/data/app_nivel_embalse_tabs.py"
+with open(file_path, "w", encoding="utf-8") as f:
+    f.write(tabbed_app_code)
+
+file_path
+
