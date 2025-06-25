@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -104,12 +105,4 @@ if uploaded_file is not None:
         st.stop()
 else:
     st.warning("⚠️ Por favor, sube un archivo `.xls` o `.xlsx` con las columnas `Fecha` y `NivelEmbalse`.")
-"""
-
-# Guardar en archivo
-file_path = "/mnt/data/app_nivel_embalse_tabs.py"
-with open(file_path, "w", encoding="utf-8") as f:
-    f.write(tabbed_app_code)
-
-file_path
 
